@@ -1,37 +1,35 @@
 import { readdirSync } from "fs";
 import { basename, dirname } from "path";
-import { DataTypes, Sequelize } from "sequelize";
+import Sequelize from 'sequelize';
 import { fileURLToPath } from 'url';
-import database from "../config/database.js";
+import databaseConfig from "../config/config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const db = {};
-const sequelize = new Sequelize(database.development);
-
-export default (async () => {
-  const files = readdirSync(__dirname)
-    .filter(
-      (file) => file.indexOf('.') !== 0
-        && file !== basename(__filename)
-        && file.slice(-3) === '.js',
-    );
-
-  for await (const file of files) {
-    const model = await import(`./${file}`);
-    const namedModel = model.default(sequelize, DataTypes);
-    db[namedModel.name] = namedModel;
+class Database {
+  constructor() {
+    this.init();
   }
 
-  Object.keys(db).forEach((modelName) => {
-    if (db[modelName].associate) {
-      db[modelName].associate(db);
-    }
-  });
+  init() {
+    this.connection = new Sequelize(databaseConfig);
 
-  db.sequelize = sequelize;
-  db.Sequelize = Sequelize;
+    const imports = readdirSync(__dirname) // ler os arquivos da pasta
+      .filter(
+        (file) => file.indexOf('.') !== 0 // filtra pelas condicoes
+          && file !== basename(__filename) // ignora o arquivo atual -> index
+          && file.slice(-4) === '.mjs', // filtra pela extencão .mjs
+      ).map(async (path) => {
+        const { default: model } = await import(`./${path}`);
+        return model;
+      });
 
-  return db;
-})();
+    Promise.all(imports).then((models)=>{
+      models.map(model => model.init(this.connection))
+      .map(model => model?.associate && model?.associate(this.connection.models));
+    })
+  }
+}
+
+export default new Database();
